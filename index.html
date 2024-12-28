@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="design.css" type="text/css">
+
+<title>スマートハウスをつくろう</title>
+<header>
+<h1>自分が暮らすためのスマートハウスをつくろう</h1>
+</header>
+<p>microbitで、家の電化製品や住宅設備を制御し、自分の生活スタイルにあったスマートハウスをつくります。<br>みなさんが将来、ワンルームで一人暮らしをするとします。その際に、便利で生活しやすい環境を考えましょう。</p>
+<form>
+    <div>
+        <button type="button" id="connect">接続</button>
+        制御記録 <textarea id="recieve_text"  cols="40"></textarea>
+    </div>
+    <section class="house">
+        <img src=./figure/間取り.png>
+    </section>
+    <section class="main">
+    <!--室内照明機器の制御-->
+    <div class="sample3Area" id="makeImg">
+        室内照明
+        <input type="checkbox" id="LED-control" onchange="inputChange()" >
+          <label for="LED-control">
+            <span></span>
+          </label>
+        <img src=./figure/室内照明.jpg>
+    </div>
+    <!--ドアの制御-->
+    <div class="sample3Area" id="makeImg">
+        鍵の開閉
+        <input type="checkbox" id="door-control" onchange="inputChange2()">
+          <label for="door-control">
+            <span></span>
+          </label>
+        <img src=./figure/ドア.jpg>
+    </div>
+    <!--テレビの制御-->
+    <div class="sample3Area" id="makeImg">
+        テレビ
+        <input type="checkbox" id="TV-control" onchange="inputChange3()">
+          <label for="TV-control">
+            <span></span>
+          </label>
+        <img src=./figure/テレビ.jpg>
+    </div>
+    <!--その他自分で設定した機器の制御-->
+    <div class="sample3Area" id="makeImg">
+        <input type="text" id="custom" name="custom"size="9">
+        <input type="checkbox" id="custom-control"  onchange="inputChange4()">
+          <label for="custom-control">
+            <span></span>
+          </label>
+        <img src=./figure/カスタム.jpg>
+    </div>
+    <br> <!--改行-->
+
+    <div class="applianceControl">
+        <!-- エアコン制御エリア -->
+        <div class="sample2Area" id="makeImg">
+            エアコン
+            <input type="checkbox" id="air-control">
+            <label for="air-control">
+                <span></span>
+            </label>
+            <img src="./figure/エアコン.jpg">
+        </div>
+        <div class="sample4Area" id="makeImg">
+            <input type="radio" name="air-power" value="reset">切 <br>
+            <input type="radio" name="air-power" value="weak">弱 <br>
+            <input type="radio" name="air-power" value="strong">強
+        </div>
+    
+        <!-- 防犯カメラ制御エリア -->
+        <div class="cameraControlArea">
+            防犯カメラ
+            <input type="checkbox" id="camera-control">
+            <label for="camera-control">
+                <span></span>
+            </label>
+            <textarea id="camera_move"></textarea>
+            <img src="./figure/防犯カメラ.jpg">
+        </div>
+    </div>
+    
+
+</section>
+
+</form>
+
+<script>
+const UUID_UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+const UUID_TX_CHAR_CHARACTERISTIC = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
+const UUID_RX_CHAR_CHARACTERISTIC = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+
+let gatt = null
+let tx = null
+let rx = null
+let log = ""    //テキストエリアのログ記録
+
+
+const update = connected => {
+    document.getElementById('connect').textContent = connected ? '切断' : '接続'
+    //document.getElementById('send').disabled = !connected
+}
+const send = text => rx.writeValue(new TextEncoder().encode(text + '\n'))
+
+document.getElementById('connect').addEventListener('click', e => {
+    if(!(navigator.bluetooth && navigator.bluetooth.requestDevice)) {
+        alert('WebBluetooth に未対応のブラウザです。')
+        return
+    }
+    if (document.getElementById('connect').textContent == '接続') {
+        navigator.bluetooth.requestDevice({
+            filters: [
+                { services: [UUID_UART_SERVICE] },
+                { namePrefix: 'BBC micro:bit' }
+            ]
+        }).then(device => {
+            gatt = device.gatt
+            return gatt.connect()
+        }).then(server =>
+            server.getPrimaryService(UUID_UART_SERVICE)
+        ).then(service =>
+            Promise.all([
+            service.getCharacteristic(UUID_TX_CHAR_CHARACTERISTIC),
+            service.getCharacteristic(UUID_RX_CHAR_CHARACTERISTIC)])
+        ).then(characteristics => {
+            tx = characteristics[0]
+            tx.startNotifications()
+            tx.addEventListener('characteristicvaluechanged', e => {
+                const text = new TextDecoder().decode(e.target.value)  //送られてきた文字列を格納する
+
+                //受け取った文字列による条件判断 処理の中心
+                switch(text){
+                    //室内照明
+                    case "LED-ON":{
+                        document.getElementById('recieve_text').value = "室内照明をONにしました\r\n"+ log
+                        log="室内照明をONにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#LED-control')
+                        input.checked = true     //チェックボックスの状態をONにする
+                        break;  
+                    }
+                    case "LED-OFF":{
+                        document.getElementById('recieve_text').value = "室内照明をOFFにしました\r\n"+log
+                        log="室内照明をOFFにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#LED-control')
+                        input.checked = false    //チェックボックスの状態をOFFにする
+                        break;
+                    }
+                    //エアコンの制御
+                    case "heat-weak": {                
+                        document.getElementById('recieve_text').value = "暖房を弱にしました\r\n"+ log
+                        log="暖房を弱にしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#air-control')
+                        input.checked = true
+                        //ラジオボタン制御
+                        let elements = document.getElementsByName('air-power');
+                        elements[1].checked = true;
+                        break;
+                    }
+                    case "heat-strong": {                
+                        document.getElementById('recieve_text').value = "暖房を強にしました\r\n"+ log
+                        log="暖房を強にしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#air-control')
+                        input.checked = true
+                        //ラジオボタン制御
+                        let elements = document.getElementsByName('air-power');
+                        elements[2].checked = true;
+                        break;
+                    }
+                    case "cold-weak": {                
+                        document.getElementById('recieve_text').value = "冷房を弱にしました\r\n"+ log
+                        log="冷房を弱にしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#air-control')
+                        input.checked = false
+                        //ラジオボタン制御
+                        let elements = document.getElementsByName('air-power');
+                        elements[1].checked = true;
+                        break;
+                    }
+                    case "cold-strong": {                
+                        document.getElementById('recieve_text').value = "冷房を強にしました\r\n"+ log
+                        log="冷房を強にしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#air-control')
+                        input.checked = false
+                        //ラジオボタン制御
+                        let elements = document.getElementsByName('air-power');
+                        elements[2].checked = true;
+                        break;
+                    }
+                    case "air-OFF":{
+                        document.getElementById('recieve_text').value = "エアコンをOFFにしました\r\n"+ log
+                        log="エアコンをOFFにしました\r\n"+log  //ログを記録していく
+                        //ラジオボタン制御
+                        let elements = document.getElementsByName('air-power');
+                        elements[0].checked = true;
+                        break;
+                    }
+                    //窓の制御
+                    case "window-ON":{
+                        document.getElementById('recieve_text').value = "窓を開きました\r\n"+ log
+                        log="窓を開きました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#window-control')
+                        input.checked = true    
+                        break;
+                    }
+                    case "window-OFF":{ 
+                        document.getElementById('recieve_text').value = "窓を閉じました\r\n"+ log
+                        log="窓を閉じました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#window-control')
+                        input.checked = false
+                        break;
+                    }  
+                    //ドアの施錠・解錠
+                    case "door-ON":{                                    
+                        document.getElementById('recieve_text').value = "ドアの鍵を開けました\r\n"+ log
+                        log="ドアの鍵を開けました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#door-control')
+                        input.checked = true
+                        break;
+                    }
+                    case "door-OFF":{
+                        document.getElementById('recieve_text').value = "ドアの鍵を閉じました\r\n"+ log
+                        log="ドアの鍵を閉じました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#door-control')
+                        input.checked = false 
+                        break;
+                    }
+                    //TVのON/OFF
+                    case "TV-ON":{  
+                        document.getElementById('recieve_text').value = "テレビをONにしました\r\n"+ log
+                        log="テレビをONにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#TV-control')
+                        input.checked = true 
+                        break;    
+                    }  
+                    case "TV-OFF":{
+                        document.getElementById('recieve_text').value = "テレビをOFFにしました\r\n"+ log
+                        log="テレビをOFFにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#TV-control')
+                        input.checked = false      
+                        break;    
+                    }
+                    //スピーカーのON/OFF
+                    case "music-ON":{
+                        document.getElementById('recieve_text').value = "音楽を流しました\r\n"+ log
+                        log="音楽を流しました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#music-control')
+                        input.checked = true
+                        break;
+                    }
+                    case "music-OFF":{
+                        document.getElementById('recieve_text').value = "音楽を止めました\r\n"+ log
+                        log="音楽を止めました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#music-control')
+                        input.checked = false
+                        break;
+                    }
+                    //ロボット掃除機の動作→防犯カメラに変更//
+                    case "camera-ON":{
+                        document.getElementById('recieve_text').value = "カメラをONにしました\r\n"+ log
+                        log="カメラをONにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#camera-control')
+                        input.checked = true 
+                        break;    
+                    }
+                    case "camera-OFF":{
+                        document.getElementById('recieve_text').value = "カメラをOFFにしました\r\n"+ log
+                        log="カメラをOFFにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#camera-control')
+                        input.checked = false 
+                        break;  
+                    }
+                    case "camera-c":{
+                        document.getElementById('camera_move').value = "中央方向"
+                        document.getElementById('recieve_text').value = "カメラの向きを中央にしました\r\n"+ log
+                        log="カメラの向きを中央にしました\r\n"+log  //ログを記録していく
+                        break;
+                    }
+                    case "camera-low":{
+                        document.getElementById('camera_move').value = "下方向"
+                        document.getElementById('recieve_text').value = "カメラの向きを下にしました\r\n"+ log
+                        log="カメラの向きを下にしました\r\n"+log  //ログを記録していく
+                        break;
+                    }
+                    case "camera-r":{
+                        document.getElementById('camera_move').value = "右方向"
+                        document.getElementById('recieve_text').value = "カメラの向きを右にしました\r\n"+ log
+                        log="カメラの向きを右にしました\r\n"+log  //ログを記録していく
+                        break;
+                    }
+                    case "camera-l":{
+                        document.getElementById('camera_move').value = "左方向"
+                        document.getElementById('recieve_text').value = "カメラの向きを左にしました\r\n"+ log
+                        log="カメラの向きを左にしました\r\n"+log  //ログを記録していく
+                        break;
+                    }
+
+                    //自分で設定した機器の制御//
+                    case "custom-ON":{
+                        document.getElementById('recieve_text').value = document.getElementById('custom').value +"をONにしました\r\n"+ log
+                        log=document.getElementById('custom').value +"をONにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#custom-control')
+                        input.checked = true
+                        break;
+                    }
+                    case "custom-OFF":{
+                        document.getElementById('recieve_text').value = document.getElementById('custom').value+"をOFFにしました\r\n"+ log
+                        log=document.getElementById('custom').value+"をOFFにしました\r\n"+log  //ログを記録していく
+                        const input = document.querySelector('#custom-control')
+                        input.checked = false
+                        break;
+                    }
+                    case "REQUEST-LED-STATE":{                       
+                        const checkbox = document.getElementById("LED-control");
+                        const state_LED = checkbox.checked;
+                        if(state_LED==true){
+                            send("LED-ON")
+                        }
+                        else if(state_LED==false){
+                            send("LED-OFF")
+                        }
+                        break;
+                    }
+                    case "REQUEST-DOOR-STATE":{                       
+                        const checkbox = document.getElementById("door-control");
+                        const state_Door = checkbox.checked;
+                        if(state_Door==true){
+                            send("door-ON")
+                        }
+                        else if(state_Door==false){
+                            send("door-OFF")
+                        }
+                        break;
+                    }
+                    case "REQUEST-TV-STATE":{        
+                        const checkbox = document.getElementById("TV-control");
+                        const state_TV = checkbox.checked;
+                        if(state_TV==true){
+                            send("TV-ON")
+                        }
+                        else if(state_TV==false){
+                            send("TV-OFF")
+                        }
+                        break;
+                    }
+                    case "REQUEST-AIR-STATE": {
+                        // 暖房が選択されている場合
+                        if (document.getElementById("air-control").checked) {
+                            const selectedValue = document.querySelector('input[name="air-power"]:checked').value;
+                            if (selectedValue === "reset") {
+                                send("air-OFF");
+                            } else if (selectedValue === "weak") {
+                                send("heat-weak");
+                            } else if (selectedValue === "strong") {
+                                send("heat-strong");
+                            }
+                        } else {
+                            // 冷房が選択されている場合
+                            const selectedValue = document.querySelector('input[name="air-power"]:checked').value;
+                            if (selectedValue === "reset") {
+                                send("air-OFF");
+                            } else if (selectedValue === "weak") {
+                                send("cold-weak");
+                            } else if (selectedValue === "strong") {
+                                send("cold-strong");
+                            }
+                        }
+                        break;
+                    }
+                    case "REQUEST-CAMERA-STATE":{                       
+                        const checkbox = document.getElementById("camera-control");
+                        const state_CAMERA = checkbox.checked;
+                        if(state_CAMERA==true){
+                            send("camera-ON")
+                        }
+                        else if(state_CAMERA==false){
+                            send("camera-OFF")
+                        }
+                        break;
+                    }
+                    case "REQUEST-CUSTOM-STATE":{                       
+                        const checkbox = document.getElementById("custom-control");
+                        const state_CUSTOM = checkbox.checked;
+                        if(state_CUSTOM==true){
+                            send("custom-ON")
+                        }
+                        else if(state_CUSTOM==false){
+                            send("custom-OFF")
+                        }
+                        break;
+                    }
+
+                    default:{
+                        document.getElementById('recieve_text').value = "エラー\r\n"+ log
+                        log="エラー\r\n"+log  //ログを記録していく
+                    }
+                }
+            })
+            rx = characteristics[1]
+            update(true)
+        }).catch(function(err) {
+            alert(err)
+        })
+    } else {
+        gatt.disconnect()
+        update(false)
+    }
+})
+
+//室内照明をボタンで変化させた時の処理
+function inputChange(){
+    const checkbox = document.getElementById("LED-control");
+    const state_LED = checkbox.checked;
+    if(state_LED==true){
+        send("LED-ON")
+    }
+    else if(state_LED==false){
+        send("LED-OFF")
+    }
+}
+//ドアの鍵をボタンで変化させた時の処理
+function inputChange2(){
+    const checkbox = document.getElementById("door-control");
+    const state_Door = checkbox.checked;
+    if(state_Door==true){
+        send("door-ON")
+    }
+    else if(state_Door==false){
+        send("door-OFF")
+    }
+}
+//TVをボタンで変化させた時の処理
+function inputChange3(){
+    const checkbox = document.getElementById("TV-control");
+    const state_TV = checkbox.checked;
+    if(state_TV==true){
+        send("TV-ON")
+    }
+    else if(state_TV==false){
+        send("TV-OFF")
+    }
+}
+//カスタムをボタンで変化させた時の処理
+function inputChange4(){
+    const checkbox = document.getElementById("custom-control");
+    const state_custom = checkbox.checked;
+    if(state_custom==true){
+        send("custom-ON")
+    }
+    else if(state_custom==false){
+        send("custom-OFF")
+    }
+}
+//エアコンの設定が変更されたとき
+document.querySelectorAll("input[name='air-power']").forEach(function(element) {
+    element.addEventListener("change", function() {
+        if (document.getElementById("air-control").checked) {
+            //暖房が選択されている
+            //alert("air-control is ON");
+            var selectedValue = this.value;
+            if (selectedValue == "reset") {
+                send("air-OFF")
+            } else if (selectedValue == "weak") {
+                send("heat-weak")
+            } else if (selectedValue == "strong") {
+                send("heat-strong")
+            }
+        } else {
+            //冷房が選択されている
+            //alert("air-control is OFF");
+            var selectedValue = this.value;
+            if (selectedValue == "reset") {
+                send("air-OFF")
+            } else if (selectedValue == "weak") {
+                send("cold-weak");
+            } else if (selectedValue == "strong") {
+                send("cold-strong")
+            }
+        }
+    });
+});
+
+
+
+
+
+</script>
